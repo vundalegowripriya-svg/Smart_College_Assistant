@@ -4,1220 +4,174 @@ import hashlib
 import os
 from datetime import date
 
-# ==========================================================
-# APP SETTINGS
-# ==========================================================
-
-st.set_page_config(
-    page_title="Smart College Assistant",
-    page_icon="🎓",
-    layout="wide"
-)
-
+st.set_page_config(page_title="Smart College Assistant", page_icon="🎓", layout="wide")
 DB = "college.db"
 UPLOAD_FOLDER = "timetables"
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-
-# ==========================================================
-# YEAR, BRANCH AND SECTION DATA
-# ==========================================================
-
 COLLEGE_DATA = {
-    "1st Year": {
-        "AIML": ["1", "2", "3", "4"],
-        "CSE": ["1", "2", "3", "4", "5"],
-        "CSD": ["1", "2"],
-        "CIC": ["1"],
-        "CSIT": ["1", "2"],
-        "ECE": ["1", "2", "3"],
-        "EEE": ["1"],
-        "CE": ["1"],
-        "ME": ["1"],
-        "AIDS": ["1", "2", "3", "4"]
-    },
-
-    "2nd Year": {
-        "AIML": ["1", "2", "3", "4"],
-        "CSE": ["1", "2", "3", "4", "5"],
-        "CSD": ["1", "2"],
-        "CIC": ["1"],
-        "CSIT": ["1", "2"],
-        "ECE": ["1", "2", "3"],
-        "EEE": ["1"],
-        "CE": ["1"],
-        "ME": ["1"],
-        "AIDS": ["1", "2", "3", "4"]
-    }
+    "1st Year": {"AIML":["1","2","3","4"],"CSE":["1","2","3","4","5"],"CSD":["1","2"],"CIC":["1"],"CSIT":["1","2"],"ECE":["1","2","3"],"EEE":["1"],"CE":["1"],"ME":["1"],"AIDS":["1","2","3","4"]},
+    "2nd Year": {"AIML":["1","2","3","4"],"CSE":["1","2","3","4","5"],"CSD":["1","2"],"CIC":["1"],"CSIT":["1","2"],"ECE":["1","2","3"],"EEE":["1"],"CE":["1"],"ME":["1"],"AIDS":["1","2","3","4"]}
 }
-
-
-# ==========================================================
-# DATABASE
-# ==========================================================
 
 def connect():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     return conn
 
-
 def password_hash(password):
-    return hashlib.sha256(
-        password.encode()
-    ).hexdigest()
-
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def create_database():
-
-    conn = connect()
-    cursor = conn.cursor()
-
-    # ---------------- STUDENTS ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            student_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            year TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            section TEXT NOT NULL,
-            password TEXT NOT NULL
-        )
-    """)
-
-    # ---------------- TIMETABLES ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS timetables (
-            timetable_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            year TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            section TEXT NOT NULL,
-            image_path TEXT NOT NULL,
-            UNIQUE(year, branch, section)
-        )
-    """)
-
-    # ---------------- SUBJECTS ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subjects (
-            subject_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            subject_name TEXT NOT NULL,
-            year TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            section TEXT NOT NULL
-        )
-    """)
-
-    # ---------------- ATTENDANCE ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
-            attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id TEXT NOT NULL,
-            subject_id INTEGER NOT NULL,
-            attendance_date TEXT NOT NULL,
-            status TEXT NOT NULL
-        )
-    """)
-
-    # ---------------- DAILY TIMETABLE ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS daily_timetable (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            year TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            section TEXT NOT NULL,
-            day TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            room TEXT
-        )
-    """)
-
-    # ---------------- ADMIN ----------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS admins (
-            username TEXT PRIMARY KEY,
-            password TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        INSERT OR IGNORE INTO admins
-        VALUES (?, ?)
-    """, (
-        "admin",
-        password_hash("admin123")
-    ))
-
-    conn.commit()
-    conn.close()
-
+    conn = connect(); cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS students (student_id TEXT PRIMARY KEY, name TEXT NOT NULL, year TEXT NOT NULL, branch TEXT NOT NULL, section TEXT NOT NULL, password TEXT NOT NULL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS timetables (timetable_id INTEGER PRIMARY KEY AUTOINCREMENT, year TEXT NOT NULL, branch TEXT NOT NULL, section TEXT NOT NULL, image_path TEXT NOT NULL, UNIQUE(year, branch, section))")
+    cursor.execute("CREATE TABLE IF NOT EXISTS subjects (subject_id INTEGER PRIMARY KEY AUTOINCREMENT, subject_name TEXT NOT NULL, year TEXT NOT NULL, branch TEXT NOT NULL, section TEXT NOT NULL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS attendance (attendance_id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL, subject_id INTEGER NOT NULL, attendance_date TEXT NOT NULL, status TEXT NOT NULL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS daily_timetable (id INTEGER PRIMARY KEY AUTOINCREMENT, year TEXT NOT NULL, branch TEXT NOT NULL, section TEXT NOT NULL, day TEXT NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL, subject TEXT NOT NULL, room TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, password TEXT NOT NULL)")
+    cursor.execute("INSERT OR IGNORE INTO admins VALUES (?, ?)", ("admin", password_hash("admin123")))
+    cursor.execute("CREATE TABLE IF NOT EXISTS monthly_attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL, attendance_month TEXT NOT NULL, percentage REAL NOT NULL, UNIQUE(student_id, attendance_month))")
+    cursor.execute("CREATE TABLE IF NOT EXISTS daily_attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL, attendance_date TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL, UNIQUE(student_id, attendance_date, subject))")
+    conn.commit(); conn.close()
 
 create_database()
-
-
-# ==========================================================
-# SESSION
-# ==========================================================
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "user_type" not in st.session_state:
-    st.session_state.user_type = None
-
-if "student_id" not in st.session_state:
-    st.session_state.student_id = None
-
-
-# ==========================================================
-# STUDENT DATABASE FUNCTIONS
-# ==========================================================
+for k,v in [("logged_in",False),("user_type",None),("student_id",None)]:
+    if k not in st.session_state: st.session_state[k]=v
 
 def get_student(student_id):
-
-    conn = connect()
-
-    student = conn.execute("""
-        SELECT *
-        FROM students
-        WHERE student_id = ?
-    """, (student_id,)).fetchone()
-
-    conn.close()
-
-    return student
-
+    conn=connect(); row=conn.execute("SELECT * FROM students WHERE student_id=?",(student_id,)).fetchone(); conn.close(); return row
 
 def get_subjects(student):
-
-    conn = connect()
-
-    subjects = conn.execute("""
-        SELECT *
-        FROM subjects
-        WHERE year = ?
-        AND branch = ?
-        AND section = ?
-        ORDER BY subject_name
-    """, (
-        student["year"],
-        student["branch"],
-        student["section"]
-    )).fetchall()
-
-    conn.close()
-
-    return subjects
-
+    conn=connect(); rows=conn.execute("SELECT * FROM subjects WHERE year=? AND branch=? AND section=? ORDER BY subject_name",(student["year"],student["branch"],student["section"])).fetchall(); conn.close(); return rows
 
 def get_timetable(student):
-
-    conn = connect()
-
-    timetable = conn.execute("""
-        SELECT *
-        FROM timetables
-        WHERE year = ?
-        AND branch = ?
-        AND section = ?
-    """, (
-        student["year"],
-        student["branch"],
-        student["section"]
-    )).fetchone()
-
-    conn.close()
-
-    return timetable
-
-
-def get_attendance(student_id, subject_id):
-
-    conn = connect()
-
-    total = conn.execute("""
-        SELECT COUNT(*) AS total
-        FROM attendance
-        WHERE student_id = ?
-        AND subject_id = ?
-    """, (
-        student_id,
-        subject_id
-    )).fetchone()["total"]
-
-    attended = conn.execute("""
-        SELECT COUNT(*) AS attended
-        FROM attendance
-        WHERE student_id = ?
-        AND subject_id = ?
-        AND status = 'Present'
-    """, (
-        student_id,
-        subject_id
-    )).fetchone()["attended"]
-
-    conn.close()
-
-    absent = total - attended
-
-    if total > 0:
-        percentage = (attended / total) * 100
-    else:
-        percentage = 0
-
-    return total, attended, absent, percentage
-
-
-# ==========================================================
-# STUDENT LOGIN
-# ==========================================================
+    conn=connect(); row=conn.execute("SELECT * FROM timetables WHERE year=? AND branch=? AND section=?",(student["year"],student["branch"],student["section"])).fetchone(); conn.close(); return row
 
 def student_login():
-
-    st.title("🎓 Smart College Assistant")
-    st.header("👨‍🎓 Student Login")
-
-    st.info(
-        "Your Year, Branch and Section are automatically "
-        "loaded from your registered student account."
-    )
-
-    student_id = st.text_input(
-        "Student ID"
-    )
-
-    password = st.text_input(
-        "Password",
-        type="password"
-    )
-
-    if st.button(
-        "🔐 Login",
-        use_container_width=True
-    ):
-
-        student = get_student(student_id)
-
-        if student is None:
-
-            st.error(
-                "Student ID not found."
-            )
-            return
-
-        if student["password"] != password_hash(password):
-
-            st.error(
-                "Incorrect password."
-            )
-            return
-
-        st.session_state.logged_in = True
-        st.session_state.user_type = "student"
-        st.session_state.student_id = student_id
-
-        st.success(
-            "Login successful!"
-        )
-
-        st.rerun()
-
-
-# ==========================================================
-# ADMIN LOGIN
-# ==========================================================
+    st.title("🎓 Smart College Assistant"); st.header("👨‍🎓 Student Login")
+    sid=st.text_input("Student ID"); pw=st.text_input("Password",type="password")
+    if st.button("🔐 Login",use_container_width=True):
+        s=get_student(sid)
+        if s and s["password"]==password_hash(pw): st.session_state.update(logged_in=True,user_type="student",student_id=sid); st.rerun()
+        else: st.error("Invalid Student ID or password.")
 
 def admin_login():
-
-    st.title("🛠️ Admin Login")
-
-    username = st.text_input(
-        "Username"
-    )
-
-    password = st.text_input(
-        "Password",
-        type="password"
-    )
-
-    if st.button(
-        "🔐 Login",
-        use_container_width=True
-    ):
-
-        conn = connect()
-
-        admin = conn.execute("""
-            SELECT *
-            FROM admins
-            WHERE username = ?
-        """, (username,)).fetchone()
-
-        conn.close()
-
-        if admin and admin["password"] == password_hash(password):
-
-            st.session_state.logged_in = True
-            st.session_state.user_type = "admin"
-
-            st.success(
-                "Admin login successful!"
-            )
-
-            st.rerun()
-
-        else:
-
-            st.error(
-                "Invalid admin login."
-            )
-
-
-# ==========================================================
-# STUDENT HOME
-# ==========================================================
+    st.title("🛠️ Admin Login"); u=st.text_input("Username"); p=st.text_input("Password",type="password")
+    if st.button("🔐 Login",use_container_width=True):
+        conn=connect(); a=conn.execute("SELECT * FROM admins WHERE username=?",(u,)).fetchone(); conn.close()
+        if a and a["password"]==password_hash(p): st.session_state.update(logged_in=True,user_type="admin"); st.rerun()
+        else: st.error("Invalid admin login.")
 
 def student_home():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
-    st.title("🏠 Student Dashboard")
-
-    st.success(
-        f"Welcome, {student['name']}!"
-    )
-
-    # These values come ONLY from database
-    year = student["year"]
-    branch = student["branch"]
-    section = student["section"]
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Academic Year",
-            year
-        )
-
-    with col2:
-        st.metric(
-            "Branch",
-            branch
-        )
-
-    with col3:
-        st.metric(
-            "Section",
-            section
-        )
-
-    st.divider()
-
-    st.subheader("📅 Your Timetable")
-
-    timetable = get_timetable(student)
-
-    if timetable:
-
-        if os.path.exists(
-            timetable["image_path"]
-        ):
-
-            st.image(
-                timetable["image_path"],
-                use_container_width=True
-            )
-
-        else:
-
-            st.warning(
-                "Timetable image not found."
-            )
-
-    else:
-
-        st.info(
-            "Timetable has not been uploaded yet."
-        )
-
-    st.subheader("📊 Your Attendance")
-
-    subjects = get_subjects(student)
-
-    if subjects:
-
-        rows = []
-
-        for subject in subjects:
-
-            total, attended, absent, percentage = \
-                get_attendance(
-                    student["student_id"],
-                    subject["subject_id"]
-                )
-
-            rows.append({
-                "Subject": subject["subject_name"],
-                "Total Classes": total,
-                "Attended": attended,
-                "Absent": absent,
-                "Attendance %":
-                    f"{percentage:.2f}%"
-            })
-
-        st.dataframe(
-            rows,
-            use_container_width=True
-        )
-
-    else:
-
-        st.info(
-            "No subjects have been added for your section."
-        )
-
-
-# ==========================================================
-# STUDENT ATTENDANCE
-# ==========================================================
+    s=get_student(st.session_state.student_id); st.title("🏠 Student Dashboard"); st.success(f"Welcome, {s['name']}!")
+    c1,c2,c3=st.columns(3); c1.metric("Academic Year",s["year"]); c2.metric("Branch",s["branch"]); c3.metric("Section",s["section"])
+    st.divider(); st.subheader("📅 Today's Timetable")
+    today=date.today().strftime("%A")
+    conn=connect(); rows=conn.execute("SELECT * FROM daily_timetable WHERE year=? AND branch=? AND section=? AND day=? ORDER BY start_time",(s["year"],s["branch"],s["section"],today)).fetchall(); conn.close()
+    if rows: st.dataframe([{"Time":f"{r['start_time']} - {r['end_time']}","Subject":r["subject"],"Room":r["room"] or "-"} for r in rows],use_container_width=True)
+    else: st.info(f"No timetable entered for {today}.")
+    st.subheader("📊 Official Monthly Attendance")
+    month=date.today().strftime("%Y-%m"); conn=connect(); a=conn.execute("SELECT percentage FROM monthly_attendance WHERE student_id=? AND attendance_month=?",(s["student_id"],month)).fetchone(); conn.close()
+    st.metric(f"Attendance - {month}",f"{a['percentage']:.2f}%" if a else "Not updated")
 
 def student_attendance():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
-    st.title("📊 Attendance")
-
-    st.write(
-        f"**{student['year']} | "
-        f"{student['branch']} | "
-        f"Section {student['section']}**"
-    )
-
-    subjects = get_subjects(student)
-
-    rows = []
-
-    total_all = 0
-    attended_all = 0
-
-    for subject in subjects:
-
-        total, attended, absent, percentage = \
-            get_attendance(
-                student["student_id"],
-                subject["subject_id"]
-            )
-
-        total_all += total
-        attended_all += attended
-
-        rows.append({
-            "Subject": subject["subject_name"],
-            "Total Classes": total,
-            "Classes Attended": attended,
-            "Classes Absent": absent,
-            "Attendance %":
-                f"{percentage:.2f}%"
-        })
-
+    s=get_student(st.session_state.student_id); st.title("📊 Attendance")
+    month=st.selectbox("Select Month",[f"{date.today().year}-{m:02d}" for m in range(1,13)],index=date.today().month-1)
+    conn=connect(); official=conn.execute("SELECT percentage FROM monthly_attendance WHERE student_id=? AND attendance_month=?",(s["student_id"],month)).fetchone(); rows=conn.execute("SELECT subject,SUM(status='Present') present,COUNT(*) total FROM daily_attendance WHERE student_id=? AND substr(attendance_date,1,7)=? GROUP BY subject",(s["student_id"],month)).fetchall(); conn.close()
+    st.subheader("🏫 Official Attendance"); st.metric("Official Monthly Percentage",f"{official['percentage']:.2f}%" if official else "Not updated")
+    st.subheader("📝 My Self-Tracked Attendance")
     if rows:
+        data=[]
+        for r in rows:
+            pct=(r["present"]/r["total"]*100) if r["total"] else 0; data.append({"Subject":r["subject"],"Total":r["total"],"Present":r["present"],"Absent":r["total"]-r["present"],"Percentage":f"{pct:.2f}%"})
+        st.dataframe(data,use_container_width=True)
+        total=sum(r["total"] for r in rows); present=sum(r["present"] for r in rows); st.metric("Overall Self-Tracked %",f"{present/total*100:.2f}%" if total else "0.00%")
+    else: st.info("No self-tracked attendance for this month.")
 
-        st.dataframe(
-            rows,
-            use_container_width=True
-        )
-
-    if total_all > 0:
-
-        overall = (
-            attended_all /
-            total_all
-        ) * 100
-
-    else:
-
-        overall = 0
-
-    st.subheader("📈 Overall Attendance")
-
-    st.metric(
-        "Overall Attendance",
-        f"{overall:.2f}%"
-    )
-
-
-# ==========================================================
-# STUDENT TIMETABLE
-# ==========================================================
-
-def student_timetable():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
-    st.title("📅 Full Timetable")
-
-    st.write(
-        f"{student['year']} | "
-        f"{student['branch']} | "
-        f"Section {student['section']}"
-    )
-
-    timetable = get_timetable(student)
-
-    if timetable:
-
-        if os.path.exists(
-            timetable["image_path"]
-        ):
-
-            st.image(
-                timetable["image_path"],
-                use_container_width=True
-            )
-
-        else:
-
-            st.error(
-                "Timetable image is missing."
-            )
-
-    else:
-
-        st.info(
-            "No timetable uploaded for your section."
-        )
-
-
-# ==========================================================
-# COLLEGE INFORMATION
-# ==========================================================
+def student_daily_attendance():
+    s=get_student(st.session_state.student_id); today=date.today(); day=today.strftime("%A"); st.title("📝 Mark My Attendance"); st.write(f"**{today.strftime('%d-%m-%Y')} | {day}**")
+    conn=connect(); periods=conn.execute("SELECT * FROM daily_timetable WHERE year=? AND branch=? AND section=? AND day=? ORDER BY start_time",(s["year"],s["branch"],s["section"],day)).fetchall(); conn.close()
+    if not periods: st.info(f"No periods entered for {day}."); return
+    for r in periods:
+        conn=connect(); old=conn.execute("SELECT status FROM daily_attendance WHERE student_id=? AND attendance_date=? AND subject=?",(s["student_id"],today.isoformat(),r["subject"])).fetchone(); conn.close()
+        opts=["-- Not Marked --","Present","Absent"]; default=opts.index(old["status"])+0 if old and old["status"] in opts else 0
+        status=st.selectbox(f"{r['start_time']} - {r['end_time']} | {r['subject']} | Room {r['room'] or '-'}",opts,index=default,key=f"att_{r['id']}")
+        if status!="-- Not Marked --" and st.button(f"Save {r['subject']}",key=f"save_{r['id']}"):
+            conn=connect(); conn.execute("INSERT INTO daily_attendance(student_id,attendance_date,subject,status) VALUES(?,?,?,?) ON CONFLICT(student_id,attendance_date,subject) DO UPDATE SET status=excluded.status",(s["student_id"],today.isoformat(),r["subject"],status)); conn.commit(); conn.close(); st.success("Attendance saved."); st.rerun()
 
 def college():
-
-    st.title("🏫 College Information")
-
-    st.subheader(
-        "Annamacharya Institute of Technology & Sciences, Tirupati"
-    )
-
-    st.write(
-        "📍 Venkatapuram, Renigunta, "
-        "Tirupati, Andhra Pradesh - 517520"
-    )
-
-    st.write(
-        "📞 +91-9948661276"
-    )
-
-    st.write(
-        "🎓 B.Tech - Undergraduate Programme"
-    )
-
-    st.markdown(
-        "[🌐 Official College Website]"
-        "(https://aits-tpt.edu.in/)"
-    )
-
-
-# ==========================================================
-# MAP
-# ==========================================================
+    st.title("🏫 College Information"); st.subheader("Annamacharya Institute of Technology & Sciences, Tirupati"); st.write("📍 Venkatapuram, Renigunta, Tirupati, Andhra Pradesh - 517520"); st.write("🎓 B.Tech - Undergraduate Programme"); st.markdown("[🌐 Official College Website](https://aits-tpt.edu.in/)")
 
 def college_map():
-
-    st.title("🗺️ College Map")
-
-    st.write(
-        "Annamacharya Institute of Technology & Sciences, Tirupati"
-    )
-
-    st.map({
-        "lat": [13.6373],
-        "lon": [79.5034]
-    })
-
-    st.markdown(
-        "[📍 Open in Google Maps]"
-        "(https://www.google.com/maps/search/"
-        "Annamacharya+Institute+of+Technology+and+Sciences+Tirupati)"
-    )
-
-
-# ==========================================================
-# PROFILE
-# ==========================================================
+    st.title("🗺️ College Campus Map")
+    st.write("College-only campus layout. No Google Maps.")
+    st.info("Layout: A+B+C are combined • E Block is in front of A Block • Canteen is behind the combined block • Boys Hostel is where the old canteen was • Girls Hostel is where the old boys hostel was • Parking is on the left • Large ground is after the parking.")
+    st.markdown("### 🏫 Campus Layout")
+    cols=st.columns(5)
+    cols[0].markdown("**👧 Girls Hostel**")
+    cols[1].markdown("**🚗 Parking**")
+    cols[2].markdown("**🌳 BIG GROUND**")
+    cols[3].markdown("**🏢 E BLOCK**")
+    cols[4].markdown("**🚪 Gate**")
+    st.markdown("\n---\n")
+    c1,c2,c3=st.columns([1,3,1]); c1.markdown("### 🧑 Boys Hostel"); c2.markdown("## 🏢 A + B + C BLOCK\n**Main Combined Academic Block**"); c3.markdown("### 🌳 Ground")
+    st.markdown("\n---\n")
+    d1,d2,d3=st.columns([1,3,1]); d1.markdown(""); d2.markdown("### 🍴 CANTEEN\nLocated behind the A+B+C combined block"); d3.markdown("")
+    st.caption("From the large ground, the E Block and the main A+B+C block are visible.")
 
 def profile():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
-    st.title("👤 Profile")
-
-    st.write(
-        f"### {student['name']}"
-    )
-
-    st.write(
-        f"**Student ID:** {student['student_id']}"
-    )
-
-    st.write(
-        f"**Academic Year:** {student['year']}"
-    )
-
-    st.write(
-        f"**Branch:** {student['branch']}"
-    )
-
-    st.write(
-        f"**Section:** {student['section']}"
-    )
-
-    st.info(
-        "Your section is fixed by the administrator. "
-        "You cannot switch to another section."
-    )
-
-
-# ==========================================================
-# ADMIN - ADD STUDENT
-# ==========================================================
+    s=get_student(st.session_state.student_id); st.title("👤 Profile"); st.write(f"### {s['name']}"); st.write(f"**Student ID:** {s['student_id']}"); st.write(f"**Academic Year:** {s['year']}"); st.write(f"**Branch:** {s['branch']}"); st.write(f"**Section:** {s['section']}")
 
 def admin_students():
-
-    st.subheader("👥 Add Student")
-
-    student_id = st.text_input(
-        "Student ID",
-        key="admin_student_id"
-    )
-
-    name = st.text_input(
-        "Student Name",
-        key="admin_student_name"
-    )
-
-    year = st.selectbox(
-        "Academic Year",
-        list(COLLEGE_DATA.keys()),
-        key="admin_student_year"
-    )
-
-    branch = st.selectbox(
-        "Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="admin_student_branch"
-    )
-
-    section = st.selectbox(
-        "Section",
-        COLLEGE_DATA[year][branch],
-        key="admin_student_section"
-    )
-
-    password = st.text_input(
-        "Student Password",
-        type="password",
-        key="admin_student_password"
-    )
-
-    if st.button(
-        "➕ Add Student"
-    ):
-
-        if not all([
-            student_id,
-            name,
-            password
-        ]):
-
-            st.error(
-                "Please fill all fields."
-            )
-
-        else:
-
-            conn = connect()
-
-            try:
-
-                conn.execute("""
-                    INSERT INTO students
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    student_id,
-                    name,
-                    year,
-                    branch,
-                    section,
-                    password_hash(password)
-                ))
-
-                conn.commit()
-
-                st.success(
-                    "Student added successfully!"
-                )
-
-            except sqlite3.IntegrityError:
-
-                st.error(
-                    "Student ID already exists."
-                )
-
-            conn.close()
-
-    st.divider()
-
-    conn = connect()
-
-    students = conn.execute("""
-        SELECT student_id, name, year, branch, section
-        FROM students
-        ORDER BY year, branch, section
-    """).fetchall()
-
-    conn.close()
-
-    if students:
-
-        st.dataframe(
-            [dict(s) for s in students],
-            use_container_width=True
-        )
-
-
-# ==========================================================
-# ADMIN - UPLOAD TIMETABLE
-# ==========================================================
+    st.subheader("👥 Add Student"); sid=st.text_input("Student ID",key="sid"); name=st.text_input("Name",key="name"); year=st.selectbox("Year",list(COLLEGE_DATA)); branch=st.selectbox("Branch",list(COLLEGE_DATA[year])); section=st.selectbox("Section",COLLEGE_DATA[year][branch]); pw=st.text_input("Password",type="password",key="pw")
+    if st.button("Add Student"):
+        try:
+            conn=connect(); conn.execute("INSERT INTO students VALUES(?,?,?,?,?,?)",(sid,name,year,branch,section,password_hash(pw))); conn.commit(); conn.close(); st.success("Student added.")
+        except sqlite3.IntegrityError: st.error("Student ID already exists.")
 
 def admin_timetable():
+    st.subheader("📅 Upload Full Timetable"); year=st.selectbox("Year",list(COLLEGE_DATA),key="ty"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year]),key="tb"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="ts"); file=st.file_uploader("Upload timetable image",type=["png","jpg","jpeg"],key="tf")
+    if st.button("Save Timetable") and file:
+        path=os.path.join(UPLOAD_FOLDER,f"{year}_{branch}_{section}_{file.name}"); open(path,"wb").write(file.getbuffer()); conn=connect(); conn.execute("INSERT INTO timetables(year,branch,section,image_path) VALUES(?,?,?,?) ON CONFLICT(year,branch,section) DO UPDATE SET image_path=excluded.image_path",(year,branch,section,path)); conn.commit(); conn.close(); st.success("Timetable saved.")
 
-    st.subheader("🖼️ Upload Section Timetable")
-
-    st.write(
-        "Select the exact Year, Branch and Section "
-        "for this timetable."
-    )
-
-    year = st.selectbox(
-        "Select Year",
-        list(COLLEGE_DATA.keys()),
-        key="upload_year"
-    )
-
-    branch = st.selectbox(
-        "Select Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="upload_branch"
-    )
-
-    section = st.selectbox(
-        "Select Section",
-        COLLEGE_DATA[year][branch],
-        key="upload_section"
-    )
-
-    uploaded_file = st.file_uploader(
-        "📤 Upload Timetable Photo",
-        type=[
-            "png",
-            "jpg",
-            "jpeg"
-        ]
-    )
-
-    if uploaded_file:
-
-        st.image(
-            uploaded_file,
-            caption="Timetable Preview",
-            use_container_width=True
-        )
-
-    if st.button(
-        "💾 Save Timetable"
-    ):
-
-        if uploaded_file is None:
-
-            st.error(
-                "Please upload a timetable photo."
-            )
-            return
-
-        file_name = (
-            f"{year}_{branch}_{section}.png"
-        )
-
-        file_path = os.path.join(
-            UPLOAD_FOLDER,
-            file_name
-        )
-
-        with open(
-            file_path,
-            "wb"
-        ) as file:
-
-            file.write(
-                uploaded_file.getbuffer()
-            )
-
-        conn = connect()
-
-        conn.execute("""
-            INSERT INTO timetables
-            (year, branch, section, image_path)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(year, branch, section)
-            DO UPDATE SET image_path=excluded.image_path
-        """, (
-            year,
-            branch,
-            section,
-            file_path
-        ))
-
-        conn.commit()
-        conn.close()
-
-        st.success(
-            f"Timetable saved for "
-            f"{year} - {branch} - Section {section}!"
-        )
-
-
-# ==========================================================
-# ADMIN - ADD SUBJECT
-# ==========================================================
+def admin_daily_timetable():
+    st.subheader("🕒 Daily Timetable Entry"); year=st.selectbox("Year",list(COLLEGE_DATA),key="dy"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year]),key="db"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="ds"); day=st.selectbox("Day",["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]); start=st.text_input("Start time",placeholder="09:00"); end=st.text_input("End time",placeholder="09:50"); subject=st.text_input("Subject"); room=st.text_input("Room")
+    if st.button("Add Period"):
+        conn=connect(); conn.execute("INSERT INTO daily_timetable(year,branch,section,day,start_time,end_time,subject,room) VALUES(?,?,?,?,?,?,?,?)",(year,branch,section,day,start,end,subject,room)); conn.commit(); conn.close(); st.success("Period added.")
 
 def admin_subjects():
-
-    st.subheader("📚 Add Subject")
-
-    year = st.selectbox(
-        "Year",
-        list(COLLEGE_DATA.keys()),
-        key="subject_admin_year"
-    )
-
-    branch = st.selectbox(
-        "Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="subject_admin_branch"
-    )
-
-    section = st.selectbox(
-        "Section",
-        COLLEGE_DATA[year][branch],
-        key="subject_admin_section"
-    )
-
-    subject_name = st.text_input(
-        "Subject Name"
-    )
-
-    if st.button(
-        "➕ Add Subject"
-    ):
-
-        if not subject_name:
-
-            st.error(
-                "Enter subject name."
-            )
-
-        else:
-
-            conn = connect()
-
-            conn.execute("""
-                INSERT INTO subjects
-                (subject_name, year, branch, section)
-                VALUES (?, ?, ?, ?)
-            """, (
-                subject_name,
-                year,
-                branch,
-                section
-            ))
-
-            conn.commit()
-            conn.close()
-
-            st.success(
-                "Subject added successfully!"
-            )
-
-
-# ==========================================================
-# ADMIN - ATTENDANCE
-# ==========================================================
+    st.subheader("📚 Add Subject"); year=st.selectbox("Year",list(COLLEGE_DATA),key="sy"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year]),key="sb"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="ss"); subject=st.text_input("Subject Name")
+    if st.button("Add Subject"):
+        conn=connect(); conn.execute("INSERT INTO subjects(subject_name,year,branch,section) VALUES(?,?,?,?)",(subject,year,branch,section)); conn.commit(); conn.close(); st.success("Subject added.")
 
 def admin_attendance():
+    st.subheader("📊 Update Official Attendance Percentage"); st.caption("Admin enters only the student's final monthly percentage. Daily Present/Absent is not required here.")
+    conn=connect(); students=conn.execute("SELECT student_id,name FROM students ORDER BY student_id").fetchall(); conn.close()
+    if not students: st.info("No students added yet."); return
+    labels=[f"{x['student_id']} - {x['name']}" for x in students]; selected=st.selectbox("Student",labels); sid=selected.split(" - ",1)[0]; month=st.text_input("Month",value=date.today().strftime("%Y-%m")); pct=st.number_input("Official Attendance %",0.0,100.0,step=0.1)
+    if st.button("Save Official Attendance"):
+        conn=connect(); conn.execute("INSERT INTO monthly_attendance(student_id,attendance_month,percentage) VALUES(?,?,?) ON CONFLICT(student_id,attendance_month) DO UPDATE SET percentage=excluded.percentage",(sid,month,pct)); conn.commit(); conn.close(); st.success("Official attendance updated.")
 
-    st.subheader("📊 Update Attendance")
-
-    conn = connect()
-
-    students = conn.execute("""
-        SELECT *
-        FROM students
-        ORDER BY name
-    """).fetchall()
-
-    conn.close()
-
-    if not students:
-
-        st.info(
-            "No students added yet."
-        )
-        return
-
-    student_names = {
-        f"{s['name']} ({s['student_id']})":
-        s["student_id"]
-        for s in students
-    }
-
-    selected = st.selectbox(
-        "Select Student",
-        list(student_names.keys())
-    )
-
-    student_id = student_names[selected]
-
-    student = get_student(student_id)
-
-    st.info(
-        f"{student['year']} | "
-        f"{student['branch']} | "
-        f"Section {student['section']}"
-    )
-
-    subjects = get_subjects(student)
-
-    if not subjects:
-
-        st.warning(
-            "No subjects exist for this section."
-        )
-        return
-
-    subject_options = {
-        s["subject_name"]:
-        s["subject_id"]
-        for s in subjects
-    }
-
-    subject_name = st.selectbox(
-        "Subject",
-        list(subject_options.keys())
-    )
-
-    subject_id = subject_options[subject_name]
-
-    attendance_date = st.date_input(
-        "Date",
-        date.today()
-    )
-
-    status = st.selectbox(
-        "Status",
-        [
-            "Present",
-            "Absent"
-        ]
-    )
-
-    if st.button(
-        "💾 Save Attendance"
-    ):
-
-        conn = connect()
-
-        conn.execute("""
-            INSERT INTO attendance
-            (student_id, subject_id,
-             attendance_date, status)
-            VALUES (?, ?, ?, ?)
-        """, (
-            student_id,
-            subject_id,
-            str(attendance_date),
-            status
-        ))
-
-        conn.commit()
-        conn.close()
-
-        st.success(
-            "Attendance saved!"
-        )
-
-
-# ==========================================================
-# ADMIN PANEL
-# ==========================================================
+def admin_monthly_attendance():
+    st.subheader("📅 Monthly Official Attendance"); conn=connect(); rows=conn.execute("SELECT m.attendance_month,m.percentage,s.student_id,s.name FROM monthly_attendance m JOIN students s ON s.student_id=m.student_id ORDER BY m.attendance_month DESC,s.student_id").fetchall(); conn.close(); st.dataframe([dict(r) for r in rows],use_container_width=True) if rows else st.info("No official attendance entered yet.")
 
 def admin_panel():
+    st.title("🛠️ Admin Panel"); tabs=st.tabs(["Students","Timetable","Daily Timetable","Subjects","Attendance","Monthly Attendance"])
+    with tabs[0]: admin_students()
+    with tabs[1]: admin_timetable()
+    with tabs[2]: admin_daily_timetable()
+    with tabs[3]: admin_subjects()
+    with tabs[4]: admin_attendance()
+    with tabs[5]: admin_monthly_attendance()
 
-    st.title("🛠️ Admin Panel")
+def app():
+    if not st.session_state.logged_in:
+        mode=st.sidebar.radio("Login",["Student","Admin"]); student_login() if mode=="Student" else admin_login(); return
+    if st.session_state.user_type=="admin":
+        if st.sidebar.button("Logout"): st.session_state.clear(); st.rerun()
+        admin_panel(); return
+    pages={"🏠 Home":student_home,"📊 Attendance":student_attendance,"📝 Mark My Attendance":student_daily_attendance,"📅 Full Timetable":lambda:None,"🏫 College Info":college,"🗺️ College Map":college_map,"👤 Profile":profile}
+    choice=st.sidebar.radio("Menu",list(pages)); pages[choice]()
 
-    tabs = st.tabs([
-        "👥 Students",
-        "🖼️ Timetable",
-        "📚 Subjects",
-        "📊 Attendance"
-    ])
-
-    with tabs[0]:
-        admin_students()
-
-    with tabs[1]:
-        admin_timetable()
-
-    with tabs[2]:
-        admin_subjects()
-
-    with tabs[3]:
-        admin_attendance()
-
-
-# ==========================================================
-# STUDENT MENU
-# ==========================================================
-
-def student_app():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
-    st.sidebar.title("🎓 Student Menu")
-
-    st.sidebar.success(
-        f"{student['year']}\n"
-        f"{student['branch']}\n"
-        f"Section {student['section']}"
-    )
-
-    menu = st.sidebar.radio(
-        "Navigation",
-        [
-            "🏠 Home",
-            "🕒 Today's Timetable",
-            "📅 Full Timetable",
-            "📊 Attendance",
-            "🏫 College",
-            "🗺️ College Map",
-            "👤 Profile",
-            "🚪 Logout"
-        ]
-    )
-
-    if menu == "🏠 Home":
-
-        student_home()
-
-    elif menu == "🕒 Today's Timetable":
-
-        st.title("🕒 Today's Timetable")
-        st.info(
-            "Daily timetable can be added from the Admin Panel."
-        )
-
-    elif menu == "📅 Full Timetable":
-
-        student_timetable()
-
-    elif menu == "📊 Attendance":
-
-        student_attendance()
-
-    elif menu == "🏫 College":
-
-        college()
-
-    elif menu == "🗺️ College Map":
-
-        college_map()
-
-    elif menu == "👤 Profile":
-
-        profile()
-
-    elif menu == "🚪 Logout":
-
-        st.session_state.logged_in = False
-        st.session_state.user_type = None
-        st.session_state.student_id = None
-
-        st.rerun()
-
-
-# ==========================================================
-# MAIN
-# ==========================================================
-
-if not st.session_state.logged_in:
-
-    st.title("🎓 Smart College Assistant")
-
-    login_type = st.radio(
-        "Login as",
-        [
-            "👨‍🎓 Student",
-            "🛠️ Admin"
-        ],
-        horizontal=True
-    )
-
-    if login_type == "👨‍🎓 Student":
-
-        student_login()
-
-    else:
-
-        admin_login()
-
-else:
-
-    if st.session_state.user_type == "student":
-
-        student_app()
-
-    elif st.session_state.user_type == "admin":
-
-        st.sidebar.title("🛠️ Administrator")
-
-        if st.sidebar.button(
-            "🚪 Logout"
-        ):
-
-            st.session_state.logged_in = False
-            st.session_state.user_type = None
-
-            st.rerun()
-
-        admin_panel()
+app()
