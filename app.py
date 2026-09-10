@@ -187,7 +187,7 @@ cursor.execute("""
     )
 """)
 
-# ---------------- OFFICIAL MONTHLY ATTENDANCE ----------------
+    # ---------------- OFFICIAL MONTHLY ATTENDANCE ----------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS monthly_attendance (
