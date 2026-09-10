@@ -155,7 +155,7 @@ def create_database():
             UNIQUE(student_id, attendance_date, start_time, subject)
         )
     """)
-     try:
+    try:
         cursor.execute("ALTER TABLE daily_attendance ADD COLUMN status TEXT DEFAULT 'Present'")
         conn.commit()
     except sqlite3.OperationalError:
