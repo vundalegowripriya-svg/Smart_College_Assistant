@@ -175,7 +175,7 @@ for column, definition in required_columns.items():
             f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
         )
 
-conn.commit()
+    conn.commit()
     # ---------------- ATTENDANCE DAY TYPE ----------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS attendance_days (
