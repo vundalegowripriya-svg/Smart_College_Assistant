@@ -144,7 +144,12 @@ def create_database():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS daily_attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            try:
+    conn.execute("ALTER TABLE daily_attendance ADD COLUMN status TEXT DEFAULT 'Present'")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id TEXT NOT NULL,
             attendance_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
