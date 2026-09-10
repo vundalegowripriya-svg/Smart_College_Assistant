@@ -175,19 +175,19 @@ for column, definition in required_columns.items():
             f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
         )
 
-    conn.commit()
-    # ---------------- ATTENDANCE DAY TYPE ----------------
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS attendance_days (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id TEXT NOT NULL,
-            attendance_date TEXT NOT NULL,
-            day_type TEXT NOT NULL,
-            UNIQUE(student_id, attendance_date)
-        )
-    """)
+conn.commit()
+# ---------------- ATTENDANCE DAY TYPE ----------------
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS attendance_days (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,
+        attendance_date TEXT NOT NULL,
+        day_type TEXT NOT NULL,
+        UNIQUE(student_id, attendance_date)
+    )
+""")
 
-    # ---------------- OFFICIAL MONTHLY ATTENDANCE ----------------
+# ---------------- OFFICIAL MONTHLY ATTENDANCE ----------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS monthly_attendance (
