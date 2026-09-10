@@ -155,12 +155,27 @@ def create_database():
             UNIQUE(student_id, attendance_date, start_time, subject)
         )
     """)
-    try:
-        cursor.execute("ALTER TABLE daily_attendance ADD COLUMN status TEXT DEFAULT 'Present'")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    # ---------------- DAILY ATTENDANCE MIGRATION ----------------
+existing_columns = {
+    row["name"]
+    for row in cursor.execute("PRAGMA table_info(daily_attendance)").fetchall()
+}
 
+required_columns = {
+    "start_time": "TEXT DEFAULT ''",
+    "end_time": "TEXT DEFAULT ''",
+    "subject": "TEXT DEFAULT ''",
+    "room": "TEXT",
+    "status": "TEXT DEFAULT 'Present'",
+}
+
+for column, definition in required_columns.items():
+    if column not in existing_columns:
+        cursor.execute(
+            f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
+        )
+
+conn.commit()
     # ---------------- ATTENDANCE DAY TYPE ----------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS attendance_days (
