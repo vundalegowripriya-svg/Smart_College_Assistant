@@ -156,36 +156,37 @@ def create_database():
         )
     """)
     # ---------------- DAILY ATTENDANCE MIGRATION ----------------
-existing_columns = {
-    row["name"]
-    for row in cursor.execute("PRAGMA table_info(daily_attendance)").fetchall()
-}
+    existing_columns = {
+        row["name"]
+        for row in cursor.execute("PRAGMA table_info(daily_attendance)").fetchall()
+    }
 
-required_columns = {
-    "start_time": "TEXT DEFAULT ''",
-    "end_time": "TEXT DEFAULT ''",
-    "subject": "TEXT DEFAULT ''",
-    "room": "TEXT",
-    "status": "TEXT DEFAULT 'Present'",
-}
+    required_columns = {
+        "start_time": "TEXT DEFAULT ''",
+        "end_time": "TEXT DEFAULT ''",
+        "subject": "TEXT DEFAULT ''",
+        "room": "TEXT",
+        "status": "TEXT DEFAULT 'Present'",
+    }
 
-for column, definition in required_columns.items():
-    if column not in existing_columns:
-        cursor.execute(
-            f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
+    for column, definition in required_columns.items():
+        if column not in existing_columns:
+            cursor.execute(
+                f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
+            )
+
+    conn.commit()
+
+    # ---------------- ATTENDANCE DAY TYPE ----------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS attendance_days (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT NOT NULL,
+            attendance_date TEXT NOT NULL,
+            day_type TEXT NOT NULL,
+            UNIQUE(student_id, attendance_date)
         )
-
-conn.commit()
-# ---------------- ATTENDANCE DAY TYPE ----------------
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS attendance_days (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id TEXT NOT NULL,
-        attendance_date TEXT NOT NULL,
-        day_type TEXT NOT NULL,
-        UNIQUE(student_id, attendance_date)
-    )
-""")
+    """)
 
     # ---------------- OFFICIAL MONTHLY ATTENDANCE ----------------
 
