@@ -770,12 +770,30 @@ def student_daily_attendance():
                         conn = connect()
                         conn.execute("DELETE FROM attendance_days WHERE student_id = ? AND attendance_date = ?", (student["student_id"], selected_str))
                         conn.execute("""
-                            INSERT INTO daily_attendance
-                            (student_id, attendance_date, start_time, end_time, subject, room, status)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(student_id, attendance_date, start_time, subject)
-                            DO UPDATE SET end_time = excluded.end_time, room = excluded.room, status = excluded.status
-                        """, (student["student_id"], selected_str, period["start_time"], period["end_time"], period["subject"], period["room"], status))
+                             DELETE FROM daily_attendance
+                             WHERE student_id = ?
+                             AND attendance_date = ?
+                             AND start_time = ?
+                             AND subject = ?
+                             """, (
+                            student["student_id"],
+                            selected_str,
+                            period["start_time"],
+                            period["subject"]
+                        ))
+                        conn.execute("""
+                        INSERT INTO daily_attendance
+                        (student_id, attendance_date, start_time, end_time, subject, room, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            student["student_id"],
+                            selected_str,
+                            period["start_time"],
+                            period["end_time"],
+                            period["subject"],
+                            period["room"],
+                            status
+                        ))
                         conn.commit()
                         conn.close()
                         st.success(f"{period['subject']} saved as {status} for {selected_date.strftime('%d-%m-%Y')}.")
