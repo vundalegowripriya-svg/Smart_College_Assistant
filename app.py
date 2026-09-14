@@ -24,33 +24,22 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # YEAR, BRANCH AND SECTION DATA
 # ==========================================================
 
-COLLEGE_DATA = {
-    "1st Year": {
-        "AIML": ["1", "2", "3", "4"],
-        "CSE": ["1", "2", "3", "4", "5"],
-        "CSD": ["1", "2"],
-        "CIC": ["1"],
-        "CSIT": ["1", "2"],
-        "ECE": ["1", "2", "3"],
-        "EEE": ["1"],
-        "CE": ["1"],
-        "ME": ["1"],
-        "AIDS": ["1", "2", "3", "4"]
-    },
+COLLEGE_DATA = {"1st Year": {"AIML": ["1", "2", "3", "4"], "CSE": ["1", "2", "3", "4", "5"], "CSD": ["1", "2"], "CIC": ["1"], "CSIT": ["1", "2"], "ECE": ["1", "2", "3"], "EEE": ["1"], "CE": ["1"], "ME": ["1"], "AIDS": ["1", "2", "3", "4"]}, "2nd Year": {"AIML": ["1", "2", "3", "4"], "CSE": ["1", "2", "3", "4", "5"], "CSD": ["1", "2"], "CIC": ["1"], "CSIT": ["1", "2"], "ECE": ["1", "2", "3"], "EEE": ["1"], "CE": ["1"], "ME": ["1"], "AIDS": ["1", "2", "3", "4"]}, "3rd Year": {"AIML": ["1", "2", "3", "4"], "CSE": ["1", "2", "3", "4", "5"], "CSD": ["1", "2"], "CIC": ["1"], "CSIT": ["1", "2"], "ECE": ["1", "2", "3"], "EEE": ["1"], "CE": ["1"], "ME": ["1"], "AIDS": ["1", "2", "3", "4"]}, "4th Year": {"AIML": ["1", "2", "3", "4"], "CSE": ["1", "2", "3", "4", "5"], "CSD": ["1", "2"], "CIC": ["1"], "CSIT": ["1", "2"], "ECE": ["1", "2", "3"], "EEE": ["1"], "CE": ["1"], "ME": ["1"], "AIDS": ["1", "2", "3", "4"]}}
 
-    "2nd Year": {
-        "AIML": ["1", "2", "3", "4"],
-        "CSE": ["1", "2", "3", "4", "5"],
-        "CSD": ["1", "2"],
-        "CIC": ["1"],
-        "CSIT": ["1", "2"],
-        "ECE": ["1", "2", "3"],
-        "EEE": ["1"],
-        "CE": ["1"],
-        "ME": ["1"],
-        "AIDS": ["1", "2", "3", "4"]
-    }
+
+SEMESTERS_BY_YEAR = {
+    "1st Year": ["Semester 1", "Semester 2"],
+    "2nd Year": ["Semester 3", "Semester 4"],
+    "3rd Year": ["Semester 5", "Semester 6"],
+    "4th Year": ["Semester 7", "Semester 8"],
 }
+
+FIXED_TIME_SLOTS = [
+    ("8:40", "9:30"), ("9:30", "10:20"), ("10:20", "11:10"),
+    ("11:10", "12:00"), ("12:00", "12:50"), ("12:50", "1:50"),
+    ("1:50", "2:40"), ("2:40", "3:30"), ("3:30", "4:20"),
+]
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
 # ==========================================================
@@ -97,6 +86,21 @@ def create_database():
             section TEXT NOT NULL,
             image_path TEXT NOT NULL,
             UNIQUE(year, branch, section)
+        )
+    """)
+
+    # ---------------- TIMETABLE IMAGE HISTORY ----------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS timetable_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year TEXT NOT NULL,
+            branch TEXT NOT NULL,
+            section TEXT NOT NULL,
+            semester TEXT NOT NULL,
+            image_path TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(year, branch, section, semester)
         )
     """)
 
@@ -155,27 +159,45 @@ def create_database():
             UNIQUE(student_id, attendance_date, start_time, subject)
         )
     """)
-    # ---------------- DAILY ATTENDANCE MIGRATION ----------------
-    existing_columns = {
-        row["name"]
-        for row in cursor.execute("PRAGMA table_info(daily_attendance)").fetchall()
-    }
-
-    required_columns = {
-        "start_time": "TEXT DEFAULT ''",
-        "end_time": "TEXT DEFAULT ''",
-        "subject": "TEXT DEFAULT ''",
-        "room": "TEXT",
-        "status": "TEXT DEFAULT 'Present'",
-    }
-
-    for column, definition in required_columns.items():
-        if column not in existing_columns:
-            cursor.execute(
-                f"ALTER TABLE daily_attendance ADD COLUMN {column} {definition}"
-            )
-
-    conn.commit()
+    # ---------------- DATABASE MIGRATIONS ----------------
+    existing_student_columns = {r["name"] for r in cursor.execute("PRAGMA table_info(students)").fetchall()}
+    if "semester" not in existing_student_columns:
+        cursor.execute("ALTER TABLE students ADD COLUMN semester TEXT DEFAULT 'Current'")
+    if "status" not in existing_student_columns:
+        cursor.execute("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'Active'")
+    cursor.execute("""
+        UPDATE students SET semester = CASE year
+            WHEN '1st Year' THEN 'Semester 1' WHEN '2nd Year' THEN 'Semester 3'
+            WHEN '3rd Year' THEN 'Semester 5' WHEN '4th Year' THEN 'Semester 7'
+            ELSE 'Current' END
+        WHERE semester IS NULL OR semester='' OR semester='Current'
+    """)
+    existing_subject_columns = {r["name"] for r in cursor.execute("PRAGMA table_info(subjects)").fetchall()}
+    if "semester" not in existing_subject_columns:
+        cursor.execute("ALTER TABLE subjects ADD COLUMN semester TEXT DEFAULT 'Current'")
+    existing_daily_columns = {r["name"] for r in cursor.execute("PRAGMA table_info(daily_timetable)").fetchall()}
+    if "semester" not in existing_daily_columns:
+        cursor.execute("ALTER TABLE daily_timetable ADD COLUMN semester TEXT DEFAULT 'Current'")
+    cursor.execute("""
+        DELETE FROM daily_timetable WHERE id NOT IN (
+            SELECT MAX(id) FROM daily_timetable
+            GROUP BY year, branch, section, semester, day, start_time
+        )
+    """)
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_timetable_slot
+        ON daily_timetable(year, branch, section, semester, day, start_time)
+    """)
+    cursor.execute("""
+        DELETE FROM subjects WHERE subject_id NOT IN (
+            SELECT MIN(subject_id) FROM subjects
+            GROUP BY subject_name, year, branch, section, semester
+        )
+    """)
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_unique
+        ON subjects(subject_name, year, branch, section, semester)
+    """)
 
     # ---------------- ATTENDANCE DAY TYPE ----------------
     cursor.execute("""
@@ -258,26 +280,16 @@ def get_student(student_id):
 
 
 def get_subjects(student):
-
     conn = connect()
-
+    semester = student["semester"] if "semester" in student.keys() else "Current"
     subjects = conn.execute("""
-        SELECT *
-        FROM subjects
-        WHERE year = ?
-        AND branch = ?
-        AND section = ?
+        SELECT * FROM subjects
+        WHERE year=? AND branch=? AND section=?
+          AND (semester=? OR semester='Current' OR semester='')
         ORDER BY subject_name
-    """, (
-        student["year"],
-        student["branch"],
-        student["section"]
-    )).fetchall()
-
+    """, (student["year"], student["branch"], student["section"], semester)).fetchall()
     conn.close()
-
     return subjects
-
 
 def get_timetable(student):
 
@@ -379,6 +391,10 @@ def student_login():
             st.error(
                 "Incorrect password."
             )
+            return
+
+        if student["status"] in ["Discontinued", "Graduated"]:
+            st.error(f"This student account is marked as {student['status']}.")
             return
 
         st.session_state.logged_in = True
@@ -700,8 +716,12 @@ def student_daily_attendance():
         SELECT start_time, end_time, subject, room
         FROM daily_timetable
         WHERE year = ? AND branch = ? AND section = ? AND day = ?
-        ORDER BY start_time
-    """, (student["year"], student["branch"], student["section"], day_name)).fetchall()
+          AND (semester = ? OR semester = 'Current' OR semester = '')
+        ORDER BY CASE start_time
+            WHEN '8:40' THEN 1 WHEN '9:30' THEN 2 WHEN '10:20' THEN 3
+            WHEN '11:10' THEN 4 WHEN '12:00' THEN 5 WHEN '12:50' THEN 6
+            WHEN '1:50' THEN 7 WHEN '2:40' THEN 8 WHEN '3:30' THEN 9 ELSE 99 END
+    """, (student["year"], student["branch"], student["section"], day_name, student["semester"])).fetchall()
 
     existing = conn.execute("""
         SELECT start_time, subject, status
@@ -770,21 +790,22 @@ def student_daily_attendance():
                         conn = connect()
                         conn.execute("DELETE FROM attendance_days WHERE student_id = ? AND attendance_date = ?", (student["student_id"], selected_str))
                         conn.execute("""
-                             DELETE FROM daily_attendance
-                             WHERE student_id = ?
-                             AND attendance_date = ?
-                             AND start_time = ?
-                             AND subject = ?
-                             """, (
+                            DELETE FROM daily_attendance
+                            WHERE student_id = ?
+                              AND attendance_date = ?
+                              AND start_time = ?
+                              AND subject = ?
+                        """, (
                             student["student_id"],
                             selected_str,
                             period["start_time"],
                             period["subject"]
                         ))
+
                         conn.execute("""
-                        INSERT INTO daily_attendance
-                        (student_id, attendance_date, start_time, end_time, subject, room, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO daily_attendance
+                            (student_id, attendance_date, start_time, end_time, subject, room, status)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (
                             student["student_id"],
                             selected_str,
@@ -883,44 +904,17 @@ def admin_monthly_attendance():
 # ==========================================================
 
 def student_timetable():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
+    student=get_student(st.session_state.student_id)
     st.title("📅 Full Timetable")
-
-    st.write(
-        f"{student['year']} | "
-        f"{student['branch']} | "
-        f"Section {student['section']}"
-    )
-
-    timetable = get_timetable(student)
-
-    if timetable:
-
-        if os.path.exists(
-            timetable["image_path"]
-        ):
-
-            st.image(
-                timetable["image_path"],
-                use_container_width=True
-            )
-
-        else:
-
-            st.error(
-                "Timetable image is missing."
-            )
-
+    st.write(f"{student['year']} | {student['branch']} | Section {student['section']} | {student['semester']}")
+    conn=connect()
+    row=conn.execute("""SELECT * FROM timetable_images WHERE year=? AND branch=? AND section=? AND (semester=? OR semester='Current') ORDER BY CASE WHEN semester=? THEN 0 ELSE 1 END, id DESC LIMIT 1""", (student['year'],student['branch'],student['section'],student['semester'],student['semester'])).fetchone()
+    conn.close()
+    if row and os.path.exists(row['image_path']): st.image(row['image_path'], use_container_width=True)
     else:
-
-        st.info(
-            "No timetable uploaded for your section."
-        )
-
+        old=get_timetable(student)
+        if old and os.path.exists(old['image_path']): st.image(old['image_path'], use_container_width=True)
+        else: st.info("No timetable uploaded for your section and semester.")
 
 # ==========================================================
 # COLLEGE INFORMATION
@@ -997,310 +991,122 @@ def college_map():
     st.dataframe([{"Place":k.title(),"Location":v} for k,v in locations.items()], use_container_width=True, hide_index=True)
 
 def profile():
-
-    student = get_student(
-        st.session_state.student_id
-    )
-
+    student = get_student(st.session_state.student_id)
     st.title("👤 Profile")
-
-    st.write(
-        f"### {student['name']}"
-    )
-
-    st.write(
-        f"**Student ID:** {student['student_id']}"
-    )
-
-    st.write(
-        f"**Academic Year:** {student['year']}"
-    )
-
-    st.write(
-        f"**Branch:** {student['branch']}"
-    )
-
-    st.write(
-        f"**Section:** {student['section']}"
-    )
-
-    st.info(
-        "Your section is fixed by the administrator. "
-        "You cannot switch to another section."
-    )
-
+    st.write(f"### {student['name']}")
+    st.write(f"**Student ID:** {student['student_id']}")
+    st.write(f"**Academic Year:** {student['year']}")
+    st.write(f"**Semester:** {student['semester']}")
+    st.write(f"**Branch:** {student['branch']}")
+    st.write(f"**Section:** {student['section']}")
+    st.write(f"**Status:** {student['status']}")
+    st.divider()
+    st.subheader("🔐 Change Password")
+    current_password=st.text_input("Current Password", type="password", key="profile_current_password")
+    new_password=st.text_input("New Password", type="password", key="profile_new_password")
+    confirm_password=st.text_input("Confirm New Password", type="password", key="profile_confirm_password")
+    if st.button("🔐 Change Password", use_container_width=True):
+        if student['password'] != password_hash(current_password): st.error("Current password is incorrect.")
+        elif not new_password: st.error("Enter a new password.")
+        elif new_password != confirm_password: st.error("New passwords do not match.")
+        else:
+            conn=connect(); conn.execute("UPDATE students SET password=? WHERE student_id=?", (password_hash(new_password), student['student_id'])); conn.commit(); conn.close(); st.success("Password changed successfully!")
 
 # ==========================================================
 # ADMIN - ADD STUDENT
 # ==========================================================
 
 def admin_students():
-
-    st.subheader("👥 Add Student")
-
-    student_id = st.text_input(
-        "Student ID",
-        key="admin_student_id"
-    )
-
-    name = st.text_input(
-        "Student Name",
-        key="admin_student_name"
-    )
-
-    year = st.selectbox(
-        "Academic Year",
-        list(COLLEGE_DATA.keys()),
-        key="admin_student_year"
-    )
-
-    branch = st.selectbox(
-        "Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="admin_student_branch"
-    )
-
-    section = st.selectbox(
-        "Section",
-        COLLEGE_DATA[year][branch],
-        key="admin_student_section"
-    )
-
-    password = st.text_input(
-        "Student Password",
-        type="password",
-        key="admin_student_password"
-    )
-
-    if st.button(
-        "➕ Add Student"
-    ):
-
-        if not all([
-            student_id,
-            name,
-            password
-        ]):
-
-            st.error(
-                "Please fill all fields."
-            )
-
-        else:
-
-            conn = connect()
-
-            try:
-
-                conn.execute("""
-                    INSERT INTO students
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    student_id,
-                    name,
-                    year,
-                    branch,
-                    section,
-                    password_hash(password)
-                ))
-
-                conn.commit()
-
-                st.success(
-                    "Student added successfully!"
-                )
-
-            except sqlite3.IntegrityError:
-
-                st.error(
-                    "Student ID already exists."
-                )
-
-            conn.close()
-
-    st.divider()
-
-    conn = connect()
-
-    students = conn.execute("""
-        SELECT student_id, name, year, branch, section
-        FROM students
-        ORDER BY year, branch, section
-    """).fetchall()
-
-    conn.close()
-
-    if students:
-
-        st.dataframe(
-            [dict(s) for s in students],
-            use_container_width=True
-        )
-
+    st.subheader("👥 Student Management")
+    st.caption("Edit year/semester/password/status without creating a new account. Use Deactivate-style statuses when a student leaves temporarily or permanently.")
+    mode=st.radio("Action",["➕ Add Student","✏️ Edit Student","🗑️ Delete Student"],horizontal=True,key="student_admin_mode")
+    years=list(COLLEGE_DATA.keys())
+    conn=connect(); students=conn.execute("SELECT * FROM students ORDER BY year, branch, section, name").fetchall(); conn.close()
+    statuses=["Active","Repeating Year","On Leave","Discontinued","Graduated"]
+    if mode=="➕ Add Student":
+        student_id=st.text_input("Student ID",key="add_student_id"); name=st.text_input("Student Name",key="add_student_name")
+        year=st.selectbox("Academic Year",years,key="add_student_year"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year].keys()),key="add_student_branch"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="add_student_section"); semester=st.selectbox("Semester",SEMESTERS_BY_YEAR[year],key="add_student_semester"); password=st.text_input("Student Password",type="password",key="add_student_password"); status=st.selectbox("Status",statuses,key="add_student_status")
+        if st.button("➕ Add Student",use_container_width=True):
+            if not all([student_id,name,password]): st.error("Please fill Student ID, Name and Password.")
+            else:
+                conn=connect()
+                try:
+                    conn.execute("INSERT INTO students (student_id,name,year,branch,section,password,semester,status) VALUES (?,?,?,?,?,?,?,?)",(student_id,name,year,branch,section,password_hash(password),semester,status)); conn.commit(); st.success("Student added successfully!"); st.rerun()
+                except sqlite3.IntegrityError: st.error("Student ID already exists.")
+                finally: conn.close()
+    elif mode=="✏️ Edit Student":
+        if not students: st.info("No students added yet."); return
+        choices={f"{x['name']} ({x['student_id']})":x['student_id'] for x in students}; label=st.selectbox("Select Student",list(choices.keys()),key="edit_student_select"); sid=choices[label]; cur=next(x for x in students if x['student_id']==sid)
+        name=st.text_input("Student Name",value=cur['name'],key=f"edit_name_{sid}"); year=st.selectbox("Academic Year",years,index=years.index(cur['year']) if cur['year'] in years else 0,key=f"edit_year_{sid}"); branches=list(COLLEGE_DATA[year].keys()); branch=st.selectbox("Branch",branches,index=branches.index(cur['branch']) if cur['branch'] in branches else 0,key=f"edit_branch_{sid}"); secs=COLLEGE_DATA[year][branch]; section=st.selectbox("Section",secs,index=secs.index(cur['section']) if cur['section'] in secs else 0,key=f"edit_section_{sid}"); sems=SEMESTERS_BY_YEAR[year]; semester=st.selectbox("Semester",sems,index=sems.index(cur['semester']) if cur['semester'] in sems else 0,key=f"edit_semester_{sid}"); pw=st.text_input("New Password (leave blank to keep current)",type="password",key=f"edit_password_{sid}"); status=st.selectbox("Status",statuses,index=statuses.index(cur['status']) if cur['status'] in statuses else 0,key=f"edit_status_{sid}")
+        if st.button("💾 Save Student Changes",use_container_width=True):
+            conn=connect()
+            if pw: conn.execute("UPDATE students SET name=?,year=?,branch=?,section=?,semester=?,status=?,password=? WHERE student_id=?",(name,year,branch,section,semester,status,password_hash(pw),sid))
+            else: conn.execute("UPDATE students SET name=?,year=?,branch=?,section=?,semester=?,status=? WHERE student_id=?",(name,year,branch,section,semester,status,sid))
+            conn.commit(); conn.close(); st.success("Student updated successfully!"); st.rerun()
+    else:
+        if not students: st.info("No students added yet."); return
+        choices={f"{x['name']} ({x['student_id']})":x['student_id'] for x in students}; label=st.selectbox("Select Student to Permanently Delete",list(choices.keys()),key="delete_student_select"); sid=choices[label]; st.warning("For students who are only leaving/pausing, use Edit and choose On Leave or Discontinued instead."); confirm=st.checkbox("I understand this permanently deletes this student and their attendance records.",key=f"confirm_delete_{sid}")
+        if st.button("🗑️ Delete Student Permanently",disabled=not confirm,use_container_width=True):
+            conn=connect()
+            for table in ["daily_attendance","attendance_days","attendance","monthly_attendance"]: conn.execute(f"DELETE FROM {table} WHERE student_id=?",(sid,))
+            conn.execute("DELETE FROM students WHERE student_id=?",(sid,)); conn.commit(); conn.close(); st.success("Student deleted permanently."); st.rerun()
+    st.divider(); conn=connect(); rows=conn.execute("SELECT student_id,name,year,semester,branch,section,status FROM students ORDER BY year,branch,section,name").fetchall(); conn.close()
+    if rows: st.dataframe([dict(r) for r in rows],use_container_width=True,hide_index=True)
 
 # ==========================================================
 # ADMIN - UPLOAD TIMETABLE
 # ==========================================================
 
 def admin_timetable():
-
-    st.subheader("🖼️ Upload Section Timetable")
-
-    st.write(
-        "Select the exact Year, Branch and Section "
-        "for this timetable."
-    )
-
-    year = st.selectbox(
-        "Select Year",
-        list(COLLEGE_DATA.keys()),
-        key="upload_year"
-    )
-
-    branch = st.selectbox(
-        "Select Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="upload_branch"
-    )
-
-    section = st.selectbox(
-        "Select Section",
-        COLLEGE_DATA[year][branch],
-        key="upload_section"
-    )
-
-    uploaded_file = st.file_uploader(
-        "📤 Upload Timetable Photo",
-        type=[
-            "png",
-            "jpg",
-            "jpeg"
-        ]
-    )
-
-    if uploaded_file:
-
-        st.image(
-            uploaded_file,
-            caption="Timetable Preview",
-            use_container_width=True
-        )
-
-    if st.button(
-        "💾 Save Timetable"
-    ):
-
-        if uploaded_file is None:
-
-            st.error(
-                "Please upload a timetable photo."
-            )
-            return
-
-        file_name = (
-            f"{year}_{branch}_{section}.png"
-        )
-
-        file_path = os.path.join(
-            UPLOAD_FOLDER,
-            file_name
-        )
-
-        with open(
-            file_path,
-            "wb"
-        ) as file:
-
-            file.write(
-                uploaded_file.getbuffer()
-            )
-
-        conn = connect()
-
-        conn.execute("""
-            INSERT INTO timetables
-            (year, branch, section, image_path)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(year, branch, section)
-            DO UPDATE SET image_path=excluded.image_path
-        """, (
-            year,
-            branch,
-            section,
-            file_path
-        ))
-
-        conn.commit()
-        conn.close()
-
-        st.success(
-            f"Timetable saved for "
-            f"{year} - {branch} - Section {section}!"
-        )
-
+    st.subheader("🖼️ Timetable Photo Management")
+    year=st.selectbox("Select Year",list(COLLEGE_DATA.keys()),key="upload_year"); branch=st.selectbox("Select Branch",list(COLLEGE_DATA[year].keys()),key="upload_branch"); section=st.selectbox("Select Section",COLLEGE_DATA[year][branch],key="upload_section"); semester=st.selectbox("Select Semester",SEMESTERS_BY_YEAR[year],key="upload_semester")
+    uploaded=st.file_uploader("📤 Upload Timetable Photo",type=["png","jpg","jpeg"],key="timetable_photo")
+    if uploaded: st.image(uploaded,caption="Timetable Preview",use_container_width=True)
+    if st.button("💾 Save / Replace Timetable",use_container_width=True):
+        if uploaded is None: st.error("Please upload a timetable photo.")
+        else:
+            path=os.path.join(UPLOAD_FOLDER,f"{year}_{branch}_{section}_{semester}.png".replace(" ","_")); open(path,"wb").write(uploaded.getbuffer())
+            conn=connect(); conn.execute("INSERT INTO timetable_images (year,branch,section,semester,image_path) VALUES (?,?,?,?,?) ON CONFLICT(year,branch,section,semester) DO UPDATE SET image_path=excluded.image_path,created_at=CURRENT_TIMESTAMP",(year,branch,section,semester,path)); conn.commit(); conn.close(); st.success("Timetable saved/replaced!"); st.rerun()
+    st.divider(); st.subheader("📋 Saved Timetables")
+    conn=connect(); rows=conn.execute("SELECT * FROM timetable_images ORDER BY year,branch,section,semester").fetchall(); conn.close()
+    if not rows: st.info("No semester timetable photos saved yet."); return
+    for r in rows:
+        c1,c2=st.columns([5,1]); c1.write(f"**{r['year']} | {r['branch']} | Section {r['section']} | {r['semester']}**")
+        if os.path.exists(r['image_path']): c1.image(r['image_path'],width=420)
+        if c2.button("🗑️ Delete",key=f"delete_tt_image_{r['id']}"):
+            conn=connect(); conn.execute("DELETE FROM timetable_images WHERE id=?",(r['id'],)); conn.commit(); conn.close();
+            try: os.remove(r['image_path'])
+            except OSError: pass
+            st.rerun()
 
 # ==========================================================
 # ADMIN - ADD SUBJECT
 # ==========================================================
 
 def admin_subjects():
-
-    st.subheader("📚 Add Subject")
-
-    year = st.selectbox(
-        "Year",
-        list(COLLEGE_DATA.keys()),
-        key="subject_admin_year"
-    )
-
-    branch = st.selectbox(
-        "Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="subject_admin_branch"
-    )
-
-    section = st.selectbox(
-        "Section",
-        COLLEGE_DATA[year][branch],
-        key="subject_admin_section"
-    )
-
-    subject_name = st.text_input(
-        "Subject Name"
-    )
-
-    if st.button(
-        "➕ Add Subject"
-    ):
-
-        if not subject_name:
-
-            st.error(
-                "Enter subject name."
-            )
-
+    st.subheader("📚 Subject Management")
+    action=st.radio("Action",["➕ Add Subject","✏️ Edit Subject","🗑️ Delete Subject"],horizontal=True,key="subject_action")
+    year=st.selectbox("Year",list(COLLEGE_DATA.keys()),key="subject_admin_year"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year].keys()),key="subject_admin_branch"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="subject_admin_section"); semester=st.selectbox("Semester",SEMESTERS_BY_YEAR[year],key="subject_admin_semester")
+    conn=connect(); rows=conn.execute("SELECT * FROM subjects WHERE year=? AND branch=? AND section=? AND (semester=? OR semester='Current' OR semester='') ORDER BY subject_name",(year,branch,section,semester)).fetchall(); conn.close()
+    if action=="➕ Add Subject":
+        name=st.text_input("Subject Name",key="new_subject_name")
+        if st.button("➕ Add Subject",use_container_width=True):
+            if not name.strip(): st.error("Enter subject name.")
+            else:
+                conn=connect()
+                try: conn.execute("INSERT INTO subjects (subject_name,year,branch,section,semester) VALUES (?,?,?,?,?)",(name.strip(),year,branch,section,semester)); conn.commit(); st.success("Subject added!"); st.rerun()
+                except sqlite3.IntegrityError: st.error("That subject already exists for this semester.")
+                finally: conn.close()
+    elif rows:
+        choices={f"{r['subject_name']} (ID {r['subject_id']})":r['subject_id'] for r in rows}; label=st.selectbox("Select Subject",list(choices.keys()),key="subject_manage_select"); sid=choices[label]; cur=next(r for r in rows if r['subject_id']==sid)
+        if action=="✏️ Edit Subject":
+            name=st.text_input("Subject Name",value=cur['subject_name'],key=f"edit_subject_{sid}")
+            if st.button("💾 Save Subject",use_container_width=True): conn=connect(); conn.execute("UPDATE subjects SET subject_name=? WHERE subject_id=?",(name.strip(),sid)); conn.commit(); conn.close(); st.success("Subject updated!"); st.rerun()
         else:
-
-            conn = connect()
-
-            conn.execute("""
-                INSERT INTO subjects
-                (subject_name, year, branch, section)
-                VALUES (?, ?, ?, ?)
-            """, (
-                subject_name,
-                year,
-                branch,
-                section
-            ))
-
-            conn.commit()
-            conn.close()
-
-            st.success(
-                "Subject added successfully!"
-            )
-
+            st.warning("This removes the subject from this semester. Historical attendance is kept.")
+            if st.button("🗑️ Delete Subject",use_container_width=True): conn=connect(); conn.execute("DELETE FROM subjects WHERE subject_id=?",(sid,)); conn.commit(); conn.close(); st.success("Subject deleted!"); st.rerun()
+    elif action!="➕ Add Subject": st.info("No subjects saved for this group.")
+    if rows: st.dataframe([dict(r) for r in rows],use_container_width=True,hide_index=True)
 
 # ==========================================================
 # ADMIN - ATTENDANCE
@@ -1366,104 +1172,27 @@ def admin_attendance():
 # ==========================================================
 
 def admin_daily_timetable():
-
-    st.subheader("🕒 Add Daily Timetable")
-
-    year = st.selectbox(
-        "Year",
-        list(COLLEGE_DATA.keys()),
-        key="daily_year"
-    )
-
-    branch = st.selectbox(
-        "Branch",
-        list(COLLEGE_DATA[year].keys()),
-        key="daily_branch"
-    )
-
-    section = st.selectbox(
-        "Section",
-        COLLEGE_DATA[year][branch],
-        key="daily_section"
-    )
-
-    day = st.selectbox(
-        "Day",
-        [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday"
-        ],
-        key="daily_day"
-    )
-
-    start_time = st.text_input(
-        "Start Time",
-        placeholder="09:30",
-        key="daily_start"
-    )
-
-    end_time = st.text_input(
-        "End Time",
-        placeholder="10:20",
-        key="daily_end"
-    )
-
-    subject = st.text_input(
-        "Subject",
-        key="daily_subject"
-    )
-
-    room = st.text_input(
-        "Room (optional)",
-        key="daily_room"
-    )
-
-    if st.button("💾 Save Daily Period"):
-
-        if not start_time or not end_time or not subject:
-
-            st.error(
-                "Please fill Start Time, End Time and Subject."
-            )
-
+    st.subheader("🕒 Daily Timetable Management")
+    st.caption("Fixed timings. Saving the same slot again replaces it instead of creating a duplicate.")
+    year=st.selectbox("Year",list(COLLEGE_DATA.keys()),key="daily_year"); branch=st.selectbox("Branch",list(COLLEGE_DATA[year].keys()),key="daily_branch"); section=st.selectbox("Section",COLLEGE_DATA[year][branch],key="daily_section"); semester=st.selectbox("Semester",SEMESTERS_BY_YEAR[year],key="daily_semester"); day=st.selectbox("Day",DAYS,key="daily_day")
+    edit_id=st.session_state.get("edit_daily_tt_id")
+    conn=connect(); er=conn.execute("SELECT * FROM daily_timetable WHERE id=?",(edit_id,)).fetchone() if edit_id else None; conn.close()
+    labels=[f"{a} - {b}" for a,b in FIXED_TIME_SLOTS]; default=labels.index(f"{er['start_time']} - {er['end_time']}") if er and f"{er['start_time']} - {er['end_time']}" in labels else 0
+    chosen=st.selectbox("Class Timing",labels,index=default,key=f"daily_time_{edit_id or 'new'}"); start_time,end_time=chosen.split(" - ")
+    subject=st.text_input("Subject",value=(er['subject'] if er and er['year']==year and er['branch']==branch and er['section']==section and er['semester']==semester and er['day']==day else ""),key=f"daily_subject_{edit_id or 'new'}")
+    room=st.text_input("Room (optional)",value=((er['room'] or "") if er else ""),key=f"daily_room_{edit_id or 'new'}")
+    if st.button("💾 Save / Update Period",use_container_width=True):
+        if not subject.strip(): st.error("Please enter a subject.")
         else:
-
-            conn = connect()
-
-            conn.execute("""
-                INSERT INTO daily_timetable
-                (
-                    year,
-                    branch,
-                    section,
-                    day,
-                    start_time,
-                    end_time,
-                    subject,
-                    room
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                year,
-                branch,
-                section,
-                day,
-                start_time,
-                end_time,
-                subject,
-                room
-            ))
-
-            conn.commit()
-            conn.close()
-
-            st.success(
-                "Daily timetable period saved!"
-            )
+            conn=connect(); conn.execute("DELETE FROM daily_timetable WHERE year=? AND branch=? AND section=? AND semester=? AND day=? AND start_time=?",(year,branch,section,semester,day,start_time)); conn.execute("INSERT INTO daily_timetable (year,branch,section,day,start_time,end_time,subject,room,semester) VALUES (?,?,?,?,?,?,?,?,?)",(year,branch,section,day,start_time,end_time,subject.strip(),room.strip(),semester)); conn.commit(); conn.close(); st.session_state.pop("edit_daily_tt_id",None); st.success("Timetable period saved/updated!"); st.rerun()
+    if edit_id and st.button("↩️ Cancel Edit",use_container_width=True): st.session_state.pop("edit_daily_tt_id",None); st.rerun()
+    st.divider(); st.subheader("📋 Saved Timetable")
+    conn=connect(); rows=conn.execute("SELECT * FROM daily_timetable WHERE year=? AND branch=? AND section=? AND semester=? AND day=? ORDER BY CASE start_time WHEN '8:40' THEN 1 WHEN '9:30' THEN 2 WHEN '10:20' THEN 3 WHEN '11:10' THEN 4 WHEN '12:00' THEN 5 WHEN '12:50' THEN 6 WHEN '1:50' THEN 7 WHEN '2:40' THEN 8 WHEN '3:30' THEN 9 ELSE 99 END",(year,branch,section,semester,day)).fetchall(); conn.close()
+    if not rows: st.info("No periods saved for this day yet.")
+    for r in rows:
+        c1,c2,c3=st.columns([5,1,1]); c1.write(f"**{r['start_time']} - {r['end_time']}** | {r['subject']} | Room: {r['room'] or '-'}")
+        if c2.button("✏️ Edit",key=f"edit_daily_{r['id']}"): st.session_state.edit_daily_tt_id=r['id']; st.rerun()
+        if c3.button("🗑️ Delete",key=f"delete_daily_{r['id']}"): conn=connect(); conn.execute("DELETE FROM daily_timetable WHERE id=?",(r['id'],)); conn.commit(); conn.close(); st.rerun()
 
 def admin_panel():
     st.title("🛠️ Admin Panel")
@@ -1538,62 +1267,15 @@ def student_app():
         student_timetable()
 
     elif menu == "🕒 Today's Timetable":
-
-        student = get_student(
-            st.session_state.student_id
-        )
-
         st.title("🕒 Today's Timetable")
-
-        today = date.today()
-        day_name = today.strftime("%A")
-
-        st.write(
-            f"**{day_name} | {today.strftime('%d-%m-%Y')}**"
-        )
-
-        conn = connect()
-
-        timetable = conn.execute("""
-            SELECT start_time, end_time, subject, room
-            FROM daily_timetable
-            WHERE year = ?
-            AND branch = ?
-            AND section = ?
-            AND day = ?
-            ORDER BY start_time
-        """, (
-            student["year"],
-            student["branch"],
-            student["section"],
-            day_name
-        )).fetchall()
-
-        conn.close()
-
-        if timetable:
-
-            rows = []
-
-            for period in timetable:
-                rows.append({
-                    "Time": f"{period['start_time']} - {period['end_time']}",
-                    "Subject": period["subject"],
-                    "Room": period["room"] or "-"
-                })
-
-            st.dataframe(
-                rows,
-                use_container_width=True,
-                hide_index=True
-            )
-
+        today=date.today(); day_name=today.strftime("%A")
+        st.write(f"**{day_name} | {today.strftime('%d-%m-%Y')}**")
+        if day_name=="Sunday":
+            st.success("🛌 Sunday — Weekly Off. No classes today.")
         else:
-
-            st.info(
-                f"No timetable has been added for {day_name} "
-                f"for your section yet."
-            )
+            conn=connect(); timetable=conn.execute("""SELECT start_time,end_time,subject,room FROM daily_timetable WHERE year=? AND branch=? AND section=? AND day=? AND (semester=? OR semester='Current' OR semester='') ORDER BY CASE start_time WHEN '8:40' THEN 1 WHEN '9:30' THEN 2 WHEN '10:20' THEN 3 WHEN '11:10' THEN 4 WHEN '12:00' THEN 5 WHEN '12:50' THEN 6 WHEN '1:50' THEN 7 WHEN '2:40' THEN 8 WHEN '3:30' THEN 9 ELSE 99 END""",(student['year'],student['branch'],student['section'],day_name,student['semester'])).fetchall(); conn.close()
+            if timetable: st.dataframe([{"Time":f"{p['start_time']} - {p['end_time']}","Subject":p['subject'],"Room":p['room'] or "-"} for p in timetable],use_container_width=True,hide_index=True)
+            else: st.info(f"No timetable has been added for {day_name} for your section and semester yet.")
     elif menu == "📊 Attendance":
 
         student_attendance()
